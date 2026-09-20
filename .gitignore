@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*.spec
+
+# Build
+build/
+dist/
+*.exe
+
+# Installer output
+installer_output/
+
+# Fonts (downloaded during build)
+fonts/
+
+# ffmpeg (downloaded during build)
+ffmpeg_bin/
+
+# Temp files
+*.log
+*.tmp
+
+# IDE
+.vscode/
+.idea/
+
+# Private (only Djani)
+keygen.py
+server/
+admin.py
+license_client.py
+license.key
+
+# Keygen (private - only Djani has this)
+keygen.py
+license.key
