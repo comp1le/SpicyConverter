@@ -18,7 +18,7 @@ from pathlib import Path
 
 # CONFIG
 APP_NAME    = "SpicyConverter"
-APP_VERSION = "1.0"
+APP_VERSION = "1.1"
 MAIN_SCRIPT = "tiktok_app.pyw"
 ICON_FILE   = "chili.ico"
 

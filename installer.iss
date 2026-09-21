@@ -4,7 +4,7 @@
 ; ═══════════════════════════════════════════════════════
 
 #define MyAppName "SpicyConverter"
-#define MyAppVersion "1.0"
+#define MyAppVersion "1.1"
 #define MyAppPublisher "SpicyConverter"
 #define MyAppExeName "SpicyConverter.exe"
 
@@ -52,6 +52,7 @@ Name: "german"; MessagesFile: "compiler:Languages\German.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Desktop-Verknüpfung erstellen"; GroupDescription: "Zusätzliche Icons:"; Flags: checkedonce
 Name: "startmenu"; Description: "Startmenü-Eintrag erstellen"; GroupDescription: "Zusätzliche Icons:"; Flags: checkedonce
+Name: "cleaninstall"; Description: "Alte Installation bereinigen (empfohlen bei Update)"; GroupDescription: "Installation:"; Flags: unchecked
 
 [Files]
 ; Die gebaute .exe aus dem dist Ordner
@@ -68,6 +69,10 @@ Name: "{group}\{#MyAppName} deinstallieren"; Filename: "{uninstallexe}"
 ; Desktop
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
+[UninstallDelete]
+; Dateien im Installationsordner loeschen
+Type: files; Name: "{app}\*.*"
+
 [Run]
 ; App nach Installation starten
 Filename: "{app}\{#MyAppExeName}"; Description: "{#MyAppName} starten"; Flags: nowait postinstall skipifsilent
@@ -82,11 +87,27 @@ UACRestart=standard
 //  Custom Wizard Pages — Dunkles Design
 // ═══════════════════════════════════════════════════════
 
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+  begin
+    DelTree(ExpandConstant('{app}'), True, True, True);
+  end;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
-    // Nach Installation: App optional starten
+    // Falls "cleaninstall" ausgewaehlt, alte Dateien loeschen
+    if WizardIsTaskSelected('cleaninstall') then
+    begin
+      // Alte Config-Dateien loeschen (falls vorhanden)
+      DeleteFile(ExpandConstant('{app}\config.ini'));
+      DeleteFile(ExpandConstant('{app}\settings.ini'));
+      // Alte Log-Dateien loeschen
+      DelTree(ExpandConstant('{app}\*.log'), False, True, False);
+    end;
   end;
 end;
 

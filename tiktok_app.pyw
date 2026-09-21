@@ -136,7 +136,7 @@ class SpicyConverter(ctk.CTk):
         row.pack(anchor="w")
         ctk.CTkLabel(row, text="\U0001f336", font=FONT_NAME(26)).pack(side="left", padx=(0, 6))
         ctk.CTkLabel(row, text="SpicyConverter", font=FONT_NAME(24, True), text_color=P["fire"]).pack(side="left")
-        ctk.CTkLabel(f, text=" v1.0 ", font=FONT_NAME(9, True), text_color="white", fg_color=P["green"], corner_radius=8).pack(side="right", pady=(6, 0))
+        ctk.CTkLabel(f, text=" v1.1 ", font=FONT_NAME(9, True), text_color="white", fg_color=P["green"], corner_radius=8).pack(side="right", pady=(6, 0))
 
     def _dropzone(self):
         self.drop_card = ctk.CTkFrame(self.content, fg_color=P["card"], border_color=P["card_border"], border_width=1, corner_radius=16)
@@ -209,7 +209,7 @@ class SpicyConverter(ctk.CTk):
         else:
             self.btn_youtube.configure(fg_color="#cc0000")
             self.btn_tiktok.configure(fg_color=P["text_muted"])
-            self.mode_desc.configure(text="Maximum smoothness + crispy sharpen + cinematic color (optimal for YouTube)")
+            self.mode_desc.configure(text="Maximum smoothness + crispy sharpen (optimal for YouTube)")
 
     def _queue_area(self):
         """Video queue display"""
@@ -374,9 +374,17 @@ class SpicyConverter(ctk.CTk):
             for path in p:
                 self.queue_list.append((path, "pending"))
             self._update_queue_ui()
-            # Set first as selected for display
-            if not self.selected_file and p:
-                self._set_file_display(p[0])
+            # Reset dropzone for next video
+            self._reset_dropzone()
+
+    def _reset_dropzone(self):
+        """Reset dropzone display so users can add more videos"""
+        self.selected_file = None
+        self.file_card.pack_forget()
+        self.drop_title.configure(text="Browse Video", text_color=P["text"])
+        self.drop_sub.configure(text="MP4, MOV, AVI, MKV, WEBM", text_color=P["text_dim"])
+        self.drop_inner.configure(border_color=P["card_border"])
+        self.status.configure(text=f"{len(self.queue_list)} video(s) in queue", text_color=P["green"])
 
     def _set_file_display(self, path):
         """Just update the dropzone display, not the queue"""
@@ -434,7 +442,7 @@ class SpicyConverter(ctk.CTk):
 
     def _process_queue(self):
         """Process all videos in queue sequentially"""
-        total = len(self.queue_list)
+        self._queue_total = len(self.queue_list)
         success_count = 0
         fail_count = 0
 
@@ -445,14 +453,15 @@ class SpicyConverter(ctk.CTk):
             self.current_index = i
             self.queue_list[i] = (path, "processing")
             self.after(0, self._update_queue_ui)
+            self.after(0, self._reset_progress)
 
             name = os.path.basename(path)
             self.after(0, self._log, f"\n{'='*40}")
-            self.after(0, self._log, f"[{i+1}/{total}] {name}")
+            self.after(0, self._log, f"[{i+1}/{self._queue_total}] {name}")
             self.after(0, self._log, f"{'='*40}\n")
 
             try:
-                self._process_single(path, i, total)
+                self._process_single(path, i, self._queue_total)
                 self.queue_list[i] = (path, "done")
                 success_count += 1
             except Exception as e:
@@ -461,18 +470,20 @@ class SpicyConverter(ctk.CTk):
                 self.after(0, self._log, f"[ERROR] {str(e)}")
 
             self.after(0, self._update_queue_ui)
+            self.after(0, self._log_queue_status)
 
         # Done
-        self.after(0, self._queue_done, success_count, fail_count, total)
+        self.after(0, self._queue_done, success_count, fail_count)
 
-    def _queue_done(self, success, fail, total):
+    def _queue_done(self, success, fail):
+        total = self._queue_total
         self.processing = False
         self.cancel_flag = False
         self.btn.configure(text="\u25b6  START PROCESSING", fg_color=P["green"], state="normal")
         self.cancel_btn.configure(state="disabled")
         self.prog_frame.pack_forget()
         self._log(f"\n{'='*40}")
-        self._log(f"QUEUE COMPLETE: {success}/{total} succeeded")
+        self._log(f"QUEST COMPLETE: {success}/{total} succeeded")
         if fail > 0:
             self._log(f"{fail} failed")
         self._log(f"{'='*40}")
@@ -611,6 +622,31 @@ class SpicyConverter(ctk.CTk):
     def _update_progress(self, pct, text):
         self.prog_bar.set(pct / 100)
         self.prog_label.configure(text=text)
+
+    def _reset_progress(self):
+        """Reset progress bar for next video"""
+        self.prog_bar.set(0)
+        self.prog_label.configure(text="0%  |  Starting...")
+
+    def _log_queue_status(self):
+        """Log all videos in queue with their status"""
+        self.after(0, self._log, "\n--- Queue Status ---")
+        for i, (path, status) in enumerate(self.queue_list):
+            name = os.path.basename(path)
+            if len(name) > 35:
+                name = name[:32] + "..."
+            if status == "pending":
+                icon = "\u23f3"
+            elif status == "processing":
+                icon = "\u26a1"
+            elif status == "done":
+                icon = "\u2705"
+            elif status == "error":
+                icon = "\u274c"
+            else:
+                icon = "\u23f3"
+            self.after(0, self._log, f"  {icon} {i+1}. {name}")
+        self.after(0, self._log, "--- End Queue ---\n")
 
 # ============================================================
 #  MAIN
