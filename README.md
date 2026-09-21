@@ -26,7 +26,7 @@ Clean interpolation, maximum quality, professional motion blur. Free & open-sour
 
 Download `SpicyConverter_Setup.exe` from [Releases](../../releases).
 
-Or use the portable `SpicyConverter.exe` directly — no installation required.
+Run the installer and follow the steps — no Python or ffmpeg needed.
 
 ---
 
