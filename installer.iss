@@ -1,6 +1,6 @@
 ; ═══════════════════════════════════════════════════════
-;  TikTok 60fps — Inno Setup Installer
-;  by Weat
+;  SpicyConverter — Inno Setup Installer
+;  by Djani
 ; ═══════════════════════════════════════════════════════
 
 #define MyAppName "SpicyConverter"
@@ -72,6 +72,11 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 ; App nach Installation starten
 Filename: "{app}\{#MyAppExeName}"; Description: "{#MyAppName} starten"; Flags: nowait postinstall skipifsilent
 
+[Manifest]
+ExecutionLevel=admin
+Compatibility=nogui
+UACRestart=standard
+
 [Code]
 // ═══════════════════════════════════════════════════════
 //  Custom Wizard Pages — Dunkles Design
@@ -98,7 +103,7 @@ begin
   WizardForm.WelcomeLabel1.Caption := 'SpicyConverter Installation';
   WizardForm.WelcomeLabel2.Caption := 
     'Dieser Installer richtet SpicyConverter auf deinem Computer ein.' + #13#10#13#10 +
-    '120fps Ultra Smooth fuer TikTok — maximale Qualitaet.' + #13#10#13#10 +
+    '120fps Ultra Smooth fuer TikTok & YouTube — maximale Qualitaet.' + #13#10#13#10 +
     'Klicke auf Weiter um fortzufahren.';
 end;
 
@@ -113,11 +118,6 @@ begin
     WizardForm.FinishedLabel.Caption := 
       'Installation abgeschlossen!' + #13#10#13#10 +
       'SpicyConverter wurde erfolgreich installiert.' + #13#10#13#10 +
-      'So benutzt du es:' + #13#10 +
-      '  1. App ueber Desktop-Verknuepfung oder Startmenu oeffnen' + #13#10 +
-      '  2. Video per Drag & Drop oder Klick auswaehlen' + #13#10 +
-      '  3. "START PROCESSING" klicken' + #13#10 +
-      '  4. Ergebnis auf tiktok.com hochladen' + #13#10#13#10 +
-      'WICHTIG: Immer ueber tiktok.com uploaden, NICHT die Mobile-App!';
+      'Klicke auf "Fertig stellen" um den Installer zu schliessen.';
   end;
 end;

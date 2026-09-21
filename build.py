@@ -1,5 +1,5 @@
 """
-Build Script - TikTok 60fps als single .exe
+Build Script - SpicyConverter als single .exe
 Packt alles zusammen: App + ffmpeg + alle Dependencies
 
 Nutzung:

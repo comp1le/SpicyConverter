@@ -1,14 +1,13 @@
 """
-SpicyConverter - TikTok 120fps Quality Tool
-120fps Ultra Smooth: Interpolate -> Denoise -> Sharpen pipeline
+SpicyConverter - 120fps Quality Tool
+TikTok (clean) & YouTube (enhanced) modes
 by Djani
 """
 
 import customtkinter as ctk
 from tkinter import filedialog, messagebox
-import subprocess, os, sys, threading, re, hashlib, hmac, time, struct, json
+import subprocess, os, sys, threading, re, queue
 from pathlib import Path
-from license_client import get_hardware_id, check_license, activate_license, LICENSE_DIR
 
 # FFMPEG
 def get_ffmpeg():
@@ -53,9 +52,9 @@ class SpicyConverter(ctk.CTk):
     def __init__(self):
         super().__init__()
         self.title("SpicyConverter")
-        self.geometry("600x860")
-        self.minsize(600, 860)
-        self.maxsize(600, 860)
+        self.geometry("600x950")
+        self.minsize(600, 950)
+        self.maxsize(600, 950)
         self.configure(fg_color=P["bg"])
         self.resizable(False, False)
 
@@ -77,8 +76,14 @@ class SpicyConverter(ctk.CTk):
 
         self.selected_file = None
         self.processing = False
-        self.selected_mode = "60fps"
+        self.selected_mode = "tiktok"
         self.ffmpeg_proc = None
+        self.cancel_flag = False
+
+        # Queue system
+        self.video_queue = queue.Queue()
+        self.queue_list = []  # For UI display: [(path, status), ...]
+        self.current_index = 0
 
         self._dark_titlebar()
         self._build()
@@ -105,8 +110,9 @@ class SpicyConverter(ctk.CTk):
         self._header()
         self._dropzone()
         self._file_info()
-        self._methods()
-        self._button()
+        self._mode_selector()
+        self._queue_area()
+        self._button_row()
         self._progress()
         self._log_area()
         self._footer()
@@ -166,16 +172,162 @@ class SpicyConverter(ctk.CTk):
         self.file_size = ctk.CTkLabel(tf, text="", font=FONT_NAME(10), text_color=P["text_dim"], anchor="w")
         self.file_size.pack(anchor="w")
 
-    def _methods(self):
-        # hidden - 120fps is always the default
-        self.selected_mode = "120fps"
+    def _mode_selector(self):
+        """TikTok / YouTube mode selector"""
+        card = ctk.CTkFrame(self.content, fg_color=P["card"], border_color=P["card_border"], border_width=1, corner_radius=14)
+        card.pack(fill="x", pady=(0, 14))
+        inner = ctk.CTkFrame(card, fg_color="transparent")
+        inner.pack(fill="x", padx=14, pady=(10, 6))
 
-    def _button(self):
+        ctk.CTkLabel(inner, text="\u2699\ufe0f", font=FONT_NAME(16)).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(inner, text="Mode", font=FONT_NAME(13, True), text_color=P["text"]).pack(side="left")
+
+        btn_frame = ctk.CTkFrame(card, fg_color="transparent")
+        btn_frame.pack(fill="x", padx=14, pady=(0, 10))
+
+        self.btn_tiktok = ctk.CTkButton(btn_frame, text="\U0001f336  TikTok", font=FONT_NAME(12, True),
+            fg_color=P["green"], hover_color=P["green_dark"], corner_radius=8, height=36,
+            command=lambda: self._set_mode("tiktok"))
+        self.btn_tiktok.pack(side="left", expand=True, fill="x", padx=(0, 4))
+
+        self.btn_youtube = ctk.CTkButton(btn_frame, text="\u25b6  YouTube", font=FONT_NAME(12, True),
+            fg_color=P["text_muted"], hover_color="#5a4555", corner_radius=8, height=36,
+            command=lambda: self._set_mode("youtube"))
+        self.btn_youtube.pack(side="left", expand=True, fill="x", padx=(4, 0))
+
+        # Mode description
+        self.mode_desc = ctk.CTkLabel(card, text="Clean pipeline - no effects, pure 120fps interpolation",
+            font=FONT_NAME(10), text_color=P["text_dim"], wraplength=500)
+        self.mode_desc.pack(padx=14, pady=(0, 10))
+
+    def _set_mode(self, mode):
+        self.selected_mode = mode
+        if mode == "tiktok":
+            self.btn_tiktok.configure(fg_color=P["green"])
+            self.btn_youtube.configure(fg_color=P["text_muted"])
+            self.mode_desc.configure(text="Clean pipeline - no effects, pure 120fps interpolation")
+        else:
+            self.btn_youtube.configure(fg_color="#cc0000")
+            self.btn_tiktok.configure(fg_color=P["text_muted"])
+            self.mode_desc.configure(text="Maximum smoothness + crispy sharpen + cinematic color (optimal for YouTube)")
+
+    def _queue_area(self):
+        """Video queue display"""
+        card = ctk.CTkFrame(self.content, fg_color=P["card"], border_color=P["card_border"], border_width=1, corner_radius=14)
+        card.pack(fill="x", pady=(0, 14))
+
+        header = ctk.CTkFrame(card, fg_color="transparent")
+        header.pack(fill="x", padx=14, pady=(10, 6))
+        ctk.CTkLabel(header, text="\U0001f4cb", font=FONT_NAME(16)).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(header, text="Queue", font=FONT_NAME(13, True), text_color=P["text"]).pack(side="left")
+
+        self.queue_count_label = ctk.CTkLabel(header, text="0 videos", font=FONT_NAME(10), text_color=P["text_dim"])
+        self.queue_count_label.pack(side="right")
+
+        # Queue list container
+        self.queue_frame = ctk.CTkFrame(card, fg_color=P["input_bg"], corner_radius=10)
+        self.queue_frame.pack(fill="x", padx=10, pady=(0, 8))
+
+        # Placeholder
+        self.queue_placeholder = ctk.CTkLabel(self.queue_frame, text="No videos in queue - click Browse to add",
+            font=FONT_NAME(10), text_color=P["text_muted"])
+        self.queue_placeholder.pack(pady=12)
+
+        self.queue_items_frame = ctk.CTkFrame(self.queue_frame, fg_color="transparent")
+        self.queue_items_frame.pack(fill="x", padx=6, pady=(0, 4))
+
+        # Add more button
+        add_frame = ctk.CTkFrame(card, fg_color="transparent")
+        add_frame.pack(fill="x", padx=14, pady=(0, 10))
+        self.add_btn = ctk.CTkButton(add_frame, text="+ Add Video", font=FONT_NAME(11, True),
+            fg_color=P["card_border"], hover_color="#5a2535", corner_radius=8, height=32,
+            command=self._browse)
+        self.add_btn.pack(side="left")
+        self.clear_queue_btn = ctk.CTkButton(add_frame, text="Clear All", font=FONT_NAME(11),
+            fg_color="transparent", hover_color="#3a1525", text_color=P["text_muted"],
+            corner_radius=8, height=32, border_width=1, border_color=P["card_border"],
+            command=self._clear_queue)
+        self.clear_queue_btn.pack(side="right")
+
+    def _update_queue_ui(self):
+        """Refresh queue display"""
+        # Clear old items
+        for w in self.queue_items_frame.winfo_children():
+            w.destroy()
+
+        if not self.queue_list:
+            self.queue_placeholder.pack(pady=12)
+            self.queue_count_label.configure(text="0 videos")
+            return
+
+        self.queue_placeholder.pack_forget()
+        self.queue_count_label.configure(text=f"{len(self.queue_list)} videos")
+
+        for i, (path, status) in enumerate(self.queue_list):
+            row = ctk.CTkFrame(self.queue_items_frame, fg_color="transparent")
+            row.pack(fill="x", pady=1)
+
+            # Status icon + text
+            if status == "pending":
+                icon = "\u23f3"
+                color = P["text_dim"]
+                status_text = "Pending"
+            elif status == "processing":
+                icon = "\u26a1"
+                color = P["fire"]
+                status_text = "Processing..."
+            elif status == "done":
+                icon = "\u2705"
+                color = P["green"]
+                status_text = "Done"
+            elif status == "error":
+                icon = "\u274c"
+                color = "#ef4444"
+                status_text = "Failed"
+            else:
+                icon = "\u23f3"
+                color = P["text_dim"]
+                status_text = "Pending"
+
+            ctk.CTkLabel(row, text=icon, font=FONT_NAME(11), text_color=color, width=24).pack(side="left")
+            name = os.path.basename(path)
+            if len(name) > 30:
+                name = name[:27] + "..."
+            ctk.CTkLabel(row, text=name, font=FONT_NAME(10), text_color=P["text"]).pack(side="left", padx=(0, 6))
+            ctk.CTkLabel(row, text=status_text, font=FONT_NAME(9, True), text_color=color).pack(side="left")
+
+            # Remove button (only for pending)
+            if status == "pending":
+                rm = ctk.CTkButton(row, text="\u2716", font=FONT_NAME(10), width=24, height=24,
+                    fg_color="transparent", hover_color="#3a1525", text_color=P["text_muted"],
+                    command=lambda idx=i: self._remove_from_queue(idx))
+                rm.pack(side="right")
+
+    def _remove_from_queue(self, index):
+        """Remove item from queue by index"""
+        if index < len(self.queue_list):
+            self.queue_list.pop(index)
+            self._update_queue_ui()
+
+    def _clear_queue(self):
+        """Clear entire queue"""
+        self.queue_list.clear()
+        self._update_queue_ui()
+
+    def _button_row(self):
+        """Start + Cancel buttons"""
         bf = ctk.CTkFrame(self.content, fg_color="transparent")
-        bf.pack(fill="x", pady=(12, 8))
+        bf.pack(fill="x", pady=(4, 8))
+
         self.btn = ctk.CTkButton(bf, text="\u25b6  START PROCESSING", font=FONT_NAME(13, True),
-            fg_color=P["green"], hover_color=P["green_dark"], corner_radius=10, height=46, cursor="hand2", command=self._start)
-        self.btn.pack(fill="x")
+            fg_color=P["green"], hover_color=P["green_dark"], corner_radius=10, height=46,
+            cursor="hand2", command=self._start)
+        self.btn.pack(side="left", expand=True, fill="x", padx=(0, 6))
+
+        self.cancel_btn = ctk.CTkButton(bf, text="\u23f9  CANCEL", font=FONT_NAME(13, True),
+            fg_color="#991b1b", hover_color="#7f1d1d", corner_radius=10, height=46, width=120,
+            cursor="hand2", command=self._cancel, state="disabled")
+        self.cancel_btn.pack(side="right")
 
     def _progress(self):
         self.prog_frame = ctk.CTkFrame(self.content, fg_color="transparent")
@@ -217,10 +369,17 @@ class SpicyConverter(ctk.CTk):
         ctk.CTkLabel(f, text="by Djani", font=FONT_NAME(9), text_color=P["text_muted"]).pack(side="right")
 
     def _browse(self):
-        p = filedialog.askopenfilename(title="Select Video", filetypes=[("Video","*.mp4 *.mov *.avi *.mkv *.webm"),("All","*.*")])
-        if p: self._set_file(p)
+        p = filedialog.askopenfilenames(title="Select Video(s)", filetypes=[("Video","*.mp4 *.mov *.avi *.mkv *.webm"),("All","*.*")])
+        if p:
+            for path in p:
+                self.queue_list.append((path, "pending"))
+            self._update_queue_ui()
+            # Set first as selected for display
+            if not self.selected_file and p:
+                self._set_file_display(p[0])
 
-    def _set_file(self, path):
+    def _set_file_display(self, path):
+        """Just update the dropzone display, not the queue"""
         self.selected_file = path
         name = os.path.basename(path)
         mb = os.path.getsize(path) / (1024*1024)
@@ -230,49 +389,121 @@ class SpicyConverter(ctk.CTk):
         self.drop_title.configure(text=name, text_color=P["text"])
         self.drop_sub.configure(text=f"{mb:.1f} MB  \u2022  Ready", text_color=P["green"])
         self.drop_inner.configure(border_color=P["green"])
-        self.status.configure(text=f"Loaded: {name}", text_color=P["green"])
+        self.status.configure(text=f"{len(self.queue_list)} video(s) in queue", text_color=P["green"])
 
     # ============================================================
     #  PROCESSING
     # ============================================================
     def _start(self):
         if self.processing: return
-        if not self.selected_file:
-            messagebox.showinfo("No Video", "Select a video first."); return
+        if not self.queue_list:
+            messagebox.showinfo("No Video", "Add videos to the queue first."); return
         if not self._check_ffmpeg():
             messagebox.showerror("ffmpeg not found", "Install: winget install ffmpeg"); return
 
         self.processing = True
+        self.cancel_flag = False
         self.btn.configure(text="\u23f3  PROCESSING...", fg_color=P["text_muted"], state="disabled")
+        self.cancel_btn.configure(state="normal")
         self.prog_frame.pack(fill="x", pady=(0, 6), after=self.btn.master)
         self.prog_bar.set(0)
         self.prog_label.configure(text="0%  |  Starting...")
-        self.status.configure(text="Processing...", text_color=P["green"])
+        self.status.configure(text="Processing queue...", text_color=P["green"])
         self._clear_log()
-        threading.Thread(target=self._process, daemon=True).start()
+        self.current_index = 0
+        threading.Thread(target=self._process_queue, daemon=True).start()
 
-    def _process(self):
-        inp = self.selected_file
-        p = Path(inp)
+    def _cancel(self):
+        """Cancel current processing"""
+        self.cancel_flag = True
+        if self.ffmpeg_proc:
+            try:
+                self.ffmpeg_proc.terminate()
+            except:
+                pass
+        self.after(0, self._log, "\n[CANCELLED] Processing stopped by user")
+        self.after(0, self._cancel_done)
+
+    def _cancel_done(self):
+        self.processing = False
+        self.cancel_flag = False
+        self.btn.configure(text="\u25b6  START PROCESSING", fg_color=P["green"], state="normal")
+        self.cancel_btn.configure(state="disabled")
+        self.prog_frame.pack_forget()
+        self.status.configure(text="Cancelled", text_color="#ef4444")
+
+    def _process_queue(self):
+        """Process all videos in queue sequentially"""
+        total = len(self.queue_list)
+        success_count = 0
+        fail_count = 0
+
+        for i, (path, _) in enumerate(self.queue_list):
+            if self.cancel_flag:
+                break
+
+            self.current_index = i
+            self.queue_list[i] = (path, "processing")
+            self.after(0, self._update_queue_ui)
+
+            name = os.path.basename(path)
+            self.after(0, self._log, f"\n{'='*40}")
+            self.after(0, self._log, f"[{i+1}/{total}] {name}")
+            self.after(0, self._log, f"{'='*40}\n")
+
+            try:
+                self._process_single(path, i, total)
+                self.queue_list[i] = (path, "done")
+                success_count += 1
+            except Exception as e:
+                self.queue_list[i] = (path, "error")
+                fail_count += 1
+                self.after(0, self._log, f"[ERROR] {str(e)}")
+
+            self.after(0, self._update_queue_ui)
+
+        # Done
+        self.after(0, self._queue_done, success_count, fail_count, total)
+
+    def _queue_done(self, success, fail, total):
+        self.processing = False
+        self.cancel_flag = False
+        self.btn.configure(text="\u25b6  START PROCESSING", fg_color=P["green"], state="normal")
+        self.cancel_btn.configure(state="disabled")
+        self.prog_frame.pack_forget()
+        self._log(f"\n{'='*40}")
+        self._log(f"QUEUE COMPLETE: {success}/{total} succeeded")
+        if fail > 0:
+            self._log(f"{fail} failed")
+        self._log(f"{'='*40}")
+        self.status.configure(text=f"Done: {success}/{total}", text_color=P["green"])
+
+    def _process_single(self, path, index, total):
+        """Process a single video"""
+        p = Path(path)
         out_dir = p.parent
-        dur = self._get_duration(inp)
+        dur = self._get_duration(path)
 
-        try:
-            out = out_dir / f"{p.stem}_120fps.mp4"
-            self.after(0, self._log, "[..] 120fps Ultra Smooth\n")
-            cmd = self._cmd_120(inp, str(out))
-            self._run_ffmpeg(cmd, dur, 0)
+        out = out_dir / f"{p.stem}_120fps.mp4"
+        mode_name = "TikTok" if self.selected_mode == "tiktok" else "YouTube"
+        self.after(0, self._log, f"[..] Mode: {mode_name} | 120fps Ultra Smooth\n")
 
-            self.after(0, self._log, f"[OK] Output: {out.name}")
+        if self.selected_mode == "youtube":
+            cmd = self._cmd_120_youtube(path, str(out))
+        else:
+            cmd = self._cmd_120_tiktok(path, str(out))
 
-            if os.path.exists(str(out)):
-                size_mb = os.path.getsize(str(out)) / (1024*1024)
-                self.after(0, self._done, str(out), size_mb)
-            else:
-                self.after(0, self._fail, "Output file not created")
+        # Calculate offset for overall progress
+        offset = (index / total) * 100
+        self._run_ffmpeg(cmd, dur, offset, total_passes=total)
 
-        except Exception as e:
-            self.after(0, self._fail, str(e))
+        self.after(0, self._log, f"[OK] Output: {out.name}")
+
+        if not os.path.exists(str(out)):
+            raise Exception("Output file not created")
+
+        size_mb = os.path.getsize(str(out)) / (1024*1024)
+        self.after(0, self._log, f"[OK] Size: {size_mb:.1f} MB")
 
     def _run_ffmpeg(self, cmd, dur, offset_pct, pass_num=0, total_passes=1):
         """Run ffmpeg with real-time progress. ffmpeg writes progress with \\r, not \\n."""
@@ -324,19 +555,43 @@ class SpicyConverter(ctk.CTk):
     # ============================================================
     #  FFMPEG COMMANDS
     # ============================================================
-    def _cmd_120(self, inp, out):
-        """120fps single-pass: interpolate -> encode (clean, no effects)"""
+    def _cmd_120_tiktok(self, inp, out):
+        """TikTok: Clean 120fps - pure interpolation, no effects"""
         f = ff()
         vf = (
-            "fps=120,"
-            "minterpolate=fps=120:mi_mode=mci:mc_mode=aobmc:vsbmc=1"
-            ":search_param=1024"
+            "minterpolate=fps=120:mi_mode=blend"
         )
         return (f'"{f}" -y -i "{inp}" '
                 f'-vf "{vf}" '
                 f'-c:v libx264 -preset veryslow -crf 10 -b:v 100M -maxrate 120M -bufsize 200M '
                 f'-pix_fmt yuv420p -colorspace bt709 -color_trc bt709 -color_primaries bt709 '
                 f'-c:a aac -b:a 320k -ar 48000 -movflags +faststart "{out}"')
+
+    def _cmd_120_youtube(self, inp, out):
+        """YouTube Gaming Montage: Maximum smoothness + crispy + motion blur
+        
+        mi_mode=blend interpolates without motion estimation = no ghosting.
+        Motion blur + sharpening for professional montage look.
+        No color filter - keeps original colors.
+        """
+        f = ff()
+        vf = (
+            # Step 1: Blend interpolation - smooth frames without ghosting
+            "minterpolate=fps=120:mi_mode=blend,"
+            # Step 2: Strong motion blur - ultra smooth look
+            "tblend=all_mode=average:all_opacity=0.18,"
+            # Step 3: Adaptive sharpen - crispy detail
+            "cas=0.8"
+        )
+        return (f'"{f}" -y -i "{inp}" '
+                f'-vf "{vf}" '
+                f'-c:v libx264 -preset veryslow -crf 8 -tune film '
+                f'-b:v 120M -maxrate 150M -bufsize 240M '
+                f'-profile:v high -level 5.1 '
+                f'-g 60 -bf 2 -flags +cgop+ildct+ilme '
+                f'-pix_fmt yuv420p -colorspace bt709 -color_trc bt709 -color_primaries bt709 '
+                f'-c:a aac -b:a 384k -ar 48000 '
+                f'-movflags +faststart "{out}"')
 
     def _check_ffmpeg(self):
         try:
@@ -357,106 +612,9 @@ class SpicyConverter(ctk.CTk):
         self.prog_bar.set(pct / 100)
         self.prog_label.configure(text=text)
 
-    def _done(self, output, size_mb):
-        self.processing = False
-        self.prog_frame.pack_forget()
-        self.btn.configure(text="\u25b6  START PROCESSING", fg_color=P["green"], state="normal")
-        self._log(f"\n[OK] Done! Saved as: {os.path.basename(output)}")
-        self._log("\nTIP: Upload via tiktok.com (not the mobile app)")
-        self.status.configure(text=f"Done: {os.path.basename(output)}", text_color=P["green"])
-        if messagebox.askyesno("Done!", f"Open {os.path.basename(output)}?"):
-            os.startfile(output)
-
-    def _fail(self, msg):
-        self.processing = False
-        self.prog_frame.pack_forget()
-        self.btn.configure(text="\u25b6  START PROCESSING", fg_color=P["green"], state="normal")
-        self._log(f"\n[ERROR] {msg}")
-        self.status.configure(text="Error", text_color=P["fire"])
-
-# ============================================================
-#  LICENSE DIALOG
-# ============================================================
-class LicenseDialog(ctk.CTkToplevel):
-    def __init__(self, parent):
-        super().__init__(parent)
-        self.title("SpicyConverter - License")
-        self.geometry("480x350")
-        self.resizable(False, False)
-        self.configure(fg_color="#0a0a0a")
-        self.grab_set()
-        self.result = False
-
-        # Dark titlebar
-        try:
-            import ctypes
-            hwnd = ctypes.windll.user32.GetForegroundWindow()
-            ctypes.windll.dwmapi.DwmSetWindowAttribute(hwnd, 20, ctypes.byref(ctypes.c_int(1)), ctypes.sizeof(ctypes.c_int))
-        except: pass
-
-        f = ctk.CTkFrame(self, fg_color="transparent")
-        f.pack(fill="both", expand=True, padx=30, pady=30)
-
-        ctk.CTkLabel(f, text="\U0001f512", font=("Segoe UI", 36)).pack(pady=(0, 10))
-        ctk.CTkLabel(f, text="License Required", font=("Bahnschrift", 20, "bold"), text_color="#f0e8ec").pack()
-        ctk.CTkLabel(f, text="Enter your license key to activate SpicyConverter.",
-            font=("Bahnschrift", 11), text_color="#7a6070").pack(pady=(4, 16))
-
-        hwid = get_hardware_id()
-        ctk.CTkLabel(f, text="Your Hardware ID:", font=("Bahnschrift", 9), text_color="#4a3545").pack()
-        ctk.CTkLabel(f, text=hwid, font=("Cascadia Code", 10), text_color="#f97316").pack(pady=(0, 12))
-
-        self.key_entry = ctk.CTkEntry(f, placeholder_text="XXXX-XXXXXXXX-XXXXXXXXXXXXXXXX",
-            font=("Cascadia Code", 11), fg_color="#120e14", border_color="#3a1525",
-            border_width=1, corner_radius=8, height=38)
-        self.key_entry.pack(fill="x", pady=(0, 12))
-
-        self.status = ctk.CTkLabel(f, text="", font=("Bahnschrift", 10), text_color="#ef4444")
-        self.status.pack(pady=(0, 8))
-
-        self.btn = ctk.CTkButton(f, text="Activate", font=("Bahnschrift", 13, "bold"),
-            fg_color="#166534", hover_color="#14532d", corner_radius=8, height=40,
-            command=self._activate)
-        self.btn.pack(fill="x")
-
-    def _activate(self):
-        key = self.key_entry.get().strip()
-        if not key:
-            self.status.configure(text="Please enter a license key.")
-            return
-
-        self.btn.configure(text="Validating...", state="disabled")
-        self.status.configure(text="Connecting to server...", text_color="#f97316")
-
-        def _do():
-            ok, msg, hwid = activate_license(key)
-            self.after(0, lambda: self._result(ok, msg))
-
-        threading.Thread(target=_do, daemon=True).start()
-
-    def _result(self, ok, msg):
-        if ok:
-            self.status.configure(text=msg, text_color="#22c55e")
-            self.result = True
-            self.after(500, self.destroy)
-        else:
-            self.status.configure(text=msg, text_color="#ef4444")
-            self.btn.configure(text="Activate", state="normal")
-
 # ============================================================
 #  MAIN
 # ============================================================
 if __name__ == "__main__":
-    valid, msg, hwid = check_license()
-    if valid:
-        app = SpicyConverter()
-        app.mainloop()
-    else:
-        root = ctk.CTk()
-        root.withdraw()
-        dialog = LicenseDialog(root)
-        root.wait_window(dialog)
-        if dialog.result:
-            app = SpicyConverter()
-            app.mainloop()
-        root.destroy()
+    app = SpicyConverter()
+    app.mainloop()

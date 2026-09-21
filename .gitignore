@@ -3,7 +3,7 @@ __pycache__/
 *.py[cod]
 *.spec
 
-# Build
+# Build artifacts
 build/
 dist/
 *.exe
@@ -25,13 +25,16 @@ ffmpeg_bin/
 .vscode/
 .idea/
 
-# Private (only Djani)
+# Private files (not for distribution)
 keygen.py
 server/
 admin.py
 license_client.py
+bot.py
+bot_requirements.txt
 license.key
+licenses.db
 
-# Keygen (private - only Djani has this)
-keygen.py
-license.key
+# OS
+Thumbs.db
+.DS_Store
